@@ -3,16 +3,16 @@ package cache
 import (
 	"bytes"
 	"crypto/sha1"
+	"encoding/gob"
 	"io"
 	"log"
 	"net/http"
 	"net/url"
 	"sync"
 	"time"
-	"encoding/gob"
 
-	"github.com/gin-contrib/cache/persistence"
 	"github.com/gin-gonic/gin"
+	"github.com/yeqown/cache/persistence"
 )
 
 const (
@@ -28,6 +28,7 @@ type responseCache struct {
 	Header http.Header
 	Data   []byte
 }
+
 // RegisterResponseCacheGob registers the responseCache type with the encoding/gob package
 func RegisterResponseCacheGob() {
 	gob.Register(responseCache{})
@@ -122,6 +123,7 @@ func (w *cachedWriter) WriteString(data string) (n int, err error) {
 }
 
 // Cache Middleware
+// self use ?
 func Cache(store *persistence.CacheStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Set(CACHE_MIDDLEWARE_KEY, store)
@@ -129,13 +131,26 @@ func Cache(store *persistence.CacheStore) gin.HandlerFunc {
 	}
 }
 
+// SiteCache middleware
 func SiteCache(store persistence.CacheStore, expire time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var cache responseCache
 		url := c.Request.URL
 		key := CreateKey(url.RequestURI())
 		if err := store.Get(key, &cache); err != nil {
+			if err != persistence.ErrCacheMiss {
+				log.Println(err.Error())
+			}
+
+			// replace writer
+			writer := newCachedWriter(store, expire, c.Writer, key)
+			c.Writer = writer
 			c.Next()
+
+			// Drop caches of aborted contexts
+			if c.IsAborted() {
+				store.Delete(key)
+			}
 		} else {
 			c.Writer.WriteHeader(cache.Status)
 			for k, vals := range cache.Header {
@@ -144,6 +159,7 @@ func SiteCache(store persistence.CacheStore, expire time.Duration) gin.HandlerFu
 				}
 			}
 			c.Writer.Write(cache.Data)
+			c.Abort()
 		}
 	}
 }

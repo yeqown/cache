@@ -3,8 +3,8 @@ package persistence
 import (
 	"time"
 
-	"github.com/gin-contrib/cache/utils"
 	"github.com/gomodule/redigo/redis"
+	"github.com/yeqown/cache/utils"
 )
 
 // RedisStore represents the cache with redis persistence
@@ -15,7 +15,9 @@ type RedisStore struct {
 
 // NewRedisCache returns a RedisStore
 // until redigo supports sharding/clustering, only one host will be in hostList
-func NewRedisCache(host string, password string, defaultExpiration time.Duration) *RedisStore {
+// TODO: handle redis error while connecting ...
+// [done] TODO: support db select ...
+func NewRedisCache(host, password string, db int, defaultExpiration time.Duration) *RedisStore {
 	var pool = &redis.Pool{
 		MaxIdle:     5,
 		IdleTimeout: 240 * time.Second,
@@ -37,6 +39,12 @@ func NewRedisCache(host string, password string, defaultExpiration time.Duration
 					return nil, err
 				}
 			}
+
+			// select db to save
+			if _, err := c.Do("Select", db); err != nil {
+				return nil, err
+			}
+
 			return c, err
 		},
 		// custom connection test method
