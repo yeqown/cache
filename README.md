@@ -14,18 +14,22 @@ Gin middleware/handler to enable Cache.
 Download and install it:
 
 ```sh
-$ go get github.com/gin-contrib/cache
+$ go get github.com/yeqown/cache
 ```
 
 Import it in your code:
 
 ```go
-import "github.com/gin-contrib/cache"
+import "github.com/yeqown/cache"
 ```
 
 ### Canonical example:
 
-See the [example](example/example.go)
+See the examples:
+
+* use with handler decorator, [example1](example/inmemory)
+* use with redis store as a middleware **PageCache**, [example2](example/redis)
+* use with **gin.Context.Get** also be a middleware, [example3](example/gincontext)
 
 ```go
 package main
@@ -34,8 +38,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gin-contrib/cache"
-	"github.com/gin-contrib/cache/persistence"
+	"github.com/yeqown/cache"
+	"github.com/yeqown/cache/persistence"
 	"github.com/gin-gonic/gin"
 )
 
@@ -54,5 +58,60 @@ func main() {
 
 	// Listen and Server in 0.0.0.0:8080
 	r.Run(":8080")
+}
+```
+
+### use with gin.Context
+
+```go
+package main
+
+import (
+	"net/http"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/yeqown/cache"
+	"github.com/yeqown/cache/persistence"
+)
+
+func main() {
+	r := gin.Default()
+
+	// link redis connection
+	store := persistence.NewRedisCache("127.0.0.1:6379", "", 1, time.Second*30)
+
+	cus := r.Group("/cus")
+	// to set gin.Context With store(data saved in redis)
+	// Cache is simplily call c.Set functions
+	cus.Use(cache.Cache(store))
+	{
+		cus.GET("/ex1", WithContextExampleHdl)
+	}
+
+	r.Run(":8080")
+}
+
+// WithContextExampleHdl self custom cache with cache
+func WithContextExampleHdl(c *gin.Context) {
+	// get cache firstly
+	v, _ := c.Get(cache.CACHE_MIDDLEWARE_KEY)
+	cache := v.(persistence.CacheStore)
+	var timePtr = new(int64)
+	// get from cache
+	if err := cache.Get("time", timePtr); err != nil {
+
+		// missed by the key, reset into cache
+		if err == persistence.ErrCacheMiss {
+			unix := time.Now().Unix()
+			cache.Set("time", unix, time.Second*10)
+			c.JSON(http.StatusOK, gin.H{"time": unix})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"time": *timePtr})
 }
 ```
