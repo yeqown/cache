@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"encoding/gob"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,6 +51,23 @@ func TestCachePage(t *testing.T) {
 
 	w1 := performRequest("GET", "/cache_ping", router)
 	w2 := performRequest("GET", "/cache_ping", router)
+
+	assert.Equal(t, 200, w1.Code)
+	assert.Equal(t, 200, w2.Code)
+	assert.Equal(t, w1.Body.String(), w2.Body.String())
+
+	// Test Post Form
+	router.POST("/cache_post", CachePage(store, time.Second*3, func(c *gin.Context) {
+		param := c.PostForm("param")
+		c.String(200, param+fmt.Sprint(time.Now().UnixNano()))
+	}))
+
+	uvs := url.Values{
+		"param": []string{"this"},
+	}
+	body := strings.NewReader(uvs.Encode())
+	w1 = performRequestWithBody("POST", "/cache_post", router, body)
+	w2 = performRequestWithBody("POST", "/cache_post", router, body)
 
 	assert.Equal(t, 200, w1.Code)
 	assert.Equal(t, 200, w2.Code)
@@ -298,6 +318,15 @@ func TestRegisterResponseCacheGob(t *testing.T) {
 }
 func performRequest(method, target string, router *gin.Engine) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, target, nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+	return w
+}
+
+func performRequestWithBody(method, target string,
+	router *gin.Engine, body io.Reader,
+) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(method, target, body)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, r)
 	return w

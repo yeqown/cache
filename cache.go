@@ -13,13 +13,16 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/yeqown/cache/persistence"
+	"github.com/yeqown/cache/utils"
 )
 
 const (
+	// CACHE_MIDDLEWARE_KEY ...
 	CACHE_MIDDLEWARE_KEY = "gincontrib.cache"
 )
 
 var (
+	// PageCachePrefix ...
 	PageCachePrefix = "gincontrib.page.cache"
 )
 
@@ -50,7 +53,7 @@ func CreateKey(u string) string {
 	return urlEscape(PageCachePrefix, u)
 }
 
-func urlEscape(prefix string, u string) string {
+func urlEscape(prefix string, u string, extern ...string) string {
 	key := url.QueryEscape(u)
 	if len(key) > 200 {
 		h := sha1.New()
@@ -61,7 +64,23 @@ func urlEscape(prefix string, u string) string {
 	buffer.WriteString(prefix)
 	buffer.WriteString(":")
 	buffer.WriteString(key)
+	for _, s := range extern {
+		buffer.WriteString(":")
+		buffer.WriteString(s)
+	}
 	return buffer.String()
+}
+
+// CreateKeyWithForm creates a package specific key for a given *req
+func CreateKeyWithForm(req *http.Request) string {
+	var (
+		cpyReq     *http.Request
+		formEncode string
+	)
+
+	cpyReq = utils.CopyRequest(req)
+	formEncode = utils.EncodeFormToString(cpyReq)
+	return urlEscape(CACHE_MIDDLEWARE_KEY, req.URL.RequestURI(), formEncode)
 }
 
 func newCachedWriter(store persistence.CacheStore, expire time.Duration, writer gin.ResponseWriter, key string) *cachedWriter {
@@ -168,8 +187,8 @@ func SiteCache(store persistence.CacheStore, expire time.Duration) gin.HandlerFu
 func CachePage(store persistence.CacheStore, expire time.Duration, handle gin.HandlerFunc) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var cache responseCache
-		url := c.Request.URL
-		key := CreateKey(url.RequestURI())
+		// url := c.Request.URL
+		key := CreateKeyWithForm(c.Request)
 		if err := store.Get(key, &cache); err != nil {
 			if err != persistence.ErrCacheMiss {
 				log.Println(err.Error())
